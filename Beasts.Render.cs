@@ -5,8 +5,10 @@ using System.Linq;
 using Beasts.Data;
 using Beasts.ExileCore;
 using ExileCore.PoEMemory.Components;
+using ExileCore.PoEMemory.Elements;
 using ExileCore.PoEMemory.Elements.InventoryElements;
 using ExileCore.Shared.Enums;
+using ExileCore.Shared.Helpers;
 using ImGuiNET;
 using SharpDX;
 using Vector2 = System.Numerics.Vector2;
@@ -16,13 +18,140 @@ namespace Beasts;
 
 public partial class Beasts
 {
+    private const int TileToGridConversion = 23;
+    private const int TileToWorldConversion = 250;
+    private const float GridToWorldMultiplier = TileToWorldConversion / (float)TileToGridConversion;
+    private const double CameraAngle = 38.7 * Math.PI / 180;
+    private static readonly float CameraAngleCos = (float)Math.Cos(CameraAngle);
+    private static readonly float CameraAngleSin = (float)Math.Sin(CameraAngle);
+
+    private double _mapScale;
+    private SharpDX.RectangleF _rect;
+    private ImDrawListPtr _backGroundWindowPtr;
+
     public override void Render()
     {
         DrawInGameBeasts();
+        if (Settings.ShowBeastPricesOnLargeMap.Value) DrawBeastsOnLargeMap();
         if (Settings.ShowBestiaryPanel.Value) DrawBestiaryPanel();
         if (Settings.ShowTrackedBeastsWindow.Value) DrawBeastsWindow();
         if (Settings.ShowCapturedBeastsInInventory.Value) DrawInventoryBeasts();
         if (Settings.ShowCapturedBeastsInStash.Value) DrawStashBeasts();
+    }
+
+    private void DrawBeastsOnLargeMap()
+    {
+        var ingameUi = GameController.IngameState.IngameUi;
+
+        _rect = GameController.Window.GetWindowRectangle() with { Location = SharpDX.Vector2.Zero };
+        if (ingameUi.OpenRightPanel.IsVisible)
+        {
+            _rect.Right = ingameUi.OpenRightPanel.GetClientRectCache.Left;
+        }
+
+        if (ingameUi.OpenLeftPanel.IsVisible)
+        {
+            _rect.Left = ingameUi.OpenLeftPanel.GetClientRectCache.Right;
+        }
+
+        ImGui.SetNextWindowSize(new Vector2(_rect.Width, _rect.Height));
+        ImGui.SetNextWindowPos(new Vector2(_rect.Left, _rect.Top));
+
+        ImGui.Begin("beasts_radar_background",
+            ImGuiWindowFlags.NoDecoration |
+            ImGuiWindowFlags.NoInputs |
+            ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoScrollWithMouse |
+            ImGuiWindowFlags.NoSavedSettings |
+            ImGuiWindowFlags.NoFocusOnAppearing |
+            ImGuiWindowFlags.NoBringToFrontOnFocus |
+            ImGuiWindowFlags.NoBackground);
+
+        _backGroundWindowPtr = ImGui.GetWindowDrawList();
+
+        var map = ingameUi.Map;
+        var largeMap = map.LargeMap.AsObject<SubMap>();
+        if (largeMap.IsVisible)
+        {
+            var mapCenter = largeMap.MapCenter;
+            _mapScale = largeMap.MapScale;
+            DrawBeastsOnMap(mapCenter);
+        }
+
+        ImGui.End();
+    }
+
+    private void DrawBeastsOnMap(Vector2 mapCenter)
+    {
+        var player = GameController.Game.IngameState.Data.LocalPlayer;
+        var playerRender = player?.GetComponent<Render>();
+        var playerPositioned = player?.GetComponent<Positioned>();
+        if (playerRender == null || playerPositioned == null) return;
+
+        var playerPosition = new Vector2(playerPositioned.GridPosNum.X, playerPositioned.GridPosNum.Y);
+        var playerHeight = -playerRender.RenderStruct.Height;
+        var heightData = GameController.IngameState.Data.RawTerrainHeightData;
+
+        foreach (var trackedBeast in _trackedBeasts)
+        {
+            var entity = trackedBeast.Value;
+            var positioned = entity.GetComponent<Positioned>();
+            if (positioned == null) continue;
+
+            var beast = BeastsDatabase.AllBeasts.FirstOrDefault(b => entity.Metadata == b.Path);
+            if (beast == null) continue;
+            if (Settings.Beasts.All(b => b.Path != beast.Path)) continue;
+
+            var beastPosition = new Vector2(positioned.GridPosNum.X, positioned.GridPosNum.Y);
+            var beastGridPos = positioned.GridPosNum;
+
+            float beastHeight = 0;
+            int beastX = (int)beastGridPos.X;
+            int beastY = (int)beastGridPos.Y;
+            if (heightData != null && beastY >= 0 && beastY < heightData.Length
+                && beastX >= 0 && beastX < heightData[beastY].Length)
+            {
+                beastHeight = heightData[beastY][beastX];
+            }
+
+            var mapDelta = TranslateGridDeltaToMapDelta(beastPosition - playerPosition, playerHeight + beastHeight);
+            var mapPos = mapCenter + mapDelta;
+
+            if (Settings.BeastPrices.TryGetValue(beast.DisplayName, out var price) && price > 0)
+            {
+                var text = $"{price.ToString(CultureInfo.InvariantCulture)}c";
+                var textSize = Graphics.MeasureText(text);
+                var textOffset = textSize / 2f;
+
+                var bgPadding = new Vector2(4, 2);
+                var bgColor = new Color(0, 0, 0, 180);
+                DrawBox(mapPos - textOffset - bgPadding, mapPos + textOffset + bgPadding, bgColor);
+
+                var color = GetSpecialBeastColor(beast.DisplayName);
+                DrawText(text, mapPos - textOffset, color);
+            }
+        }
+    }
+
+    private Vector2 TranslateGridDeltaToMapDelta(Vector2 delta, float deltaZ)
+    {
+        deltaZ /= GridToWorldMultiplier;
+        return (float)_mapScale * new Vector2((delta.X - delta.Y) * CameraAngleCos,
+            (deltaZ - (delta.X + delta.Y)) * CameraAngleSin);
+    }
+
+    private void DrawBox(Vector2 p0, Vector2 p1, Color color)
+    {
+        _backGroundWindowPtr.AddRectFilled(p0, p1,
+            ImGui.ColorConvertFloat4ToU32(new System.Numerics.Vector4(color.R / 255f, color.G / 255f,
+                color.B / 255f, color.A / 255f)));
+    }
+
+    private void DrawText(string text, Vector2 pos, Color color)
+    {
+        _backGroundWindowPtr.AddText(pos,
+            ImGui.ColorConvertFloat4ToU32(new System.Numerics.Vector4(color.R / 255f, color.G / 255f,
+                color.B / 255f, color.A / 255f)), text);
     }
 
     private void DrawInGameBeasts()
@@ -38,7 +167,7 @@ public partial class Beasts
             Graphics.DrawText(beast.DisplayName, GameController.IngameState.Camera.WorldToScreen(pos), Color.White,
                 FontAlign.Center);
 
-            DrawFilledCircleInWorldPosition(pos, 50, GetSpecialBeastColor(beast.DisplayName));
+            DrawFilledCircleInWorldPosition(pos, 100, GetSpecialBeastColor(beast.DisplayName));
         }
     }
 
@@ -178,15 +307,14 @@ public partial class Beasts
 
             if (!string.IsNullOrEmpty(monsterName) && Settings.BeastPrices.TryGetValue(monsterName, out var price))
             {
-                Graphics.DrawBox(itemRect, new Color(0, 0, 0, 0.5f));
-                Graphics.DrawFrame(itemRect, new Color(255, 255, 255, 1f), 1);
+                Graphics.DrawBox(itemRect, new Color(0, 0, 0, 0.1f));
                 Graphics.DrawText($"{price.ToString(CultureInfo.InvariantCulture)}c", itemRect.Center,
-                    FontAlign.Center);
+                    Color.White, FontAlign.Center);
             }
             else
             {
-                Graphics.DrawBox(itemRect, new Color(255, 255, 0, 0.5f));
-                Graphics.DrawFrame(itemRect, new Color(255, 255, 0, 1f), 1);
+                Graphics.DrawBox(itemRect, new Color(255, 255, 0, 0.1f));
+                Graphics.DrawFrame(itemRect, new Color(255, 255, 0, 0.2f), 1);
             }
         }
     }

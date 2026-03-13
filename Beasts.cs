@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Beasts.Api;
 using Beasts.Data;
 using ExileCore;
+using ExileCore.PoEMemory.Components;
 using ExileCore.PoEMemory.MemoryObjects;
 using ExileCore.Shared.Enums;
 
@@ -30,6 +31,30 @@ public partial class Beasts : BaseSettingsPlugin<BeastsSettings>
         }
 
         Settings.LastUpdate = DateTime.Now;
+    }
+
+    public override Job Tick()
+    {
+        var beastsToRemove = new List<long>();
+
+        foreach (var trackedBeast in _trackedBeasts)
+        {
+            var entity = trackedBeast.Value;
+            if (entity == null || !entity.IsValid) continue;
+
+            var buffs = entity.GetComponent<Buffs>();
+            if (buffs != null && buffs.BuffsList.Any(buff => buff.Name == "capture_monster_trapped"))
+            {
+                beastsToRemove.Add(trackedBeast.Key);
+            }
+        }
+
+        foreach (var id in beastsToRemove)
+        {
+            _trackedBeasts.Remove(id);
+        }
+
+        return null;
     }
 
     public override void AreaChange(AreaInstance area)
