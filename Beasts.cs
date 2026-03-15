@@ -91,6 +91,7 @@ public partial class Beasts : BaseSettingsPlugin<BeastsSettings>
         {
             if (_trackedYellowBeasts.ContainsKey(entity.Id)) continue;
             if (!entity.IsValid || !entity.IsAlive) continue;
+            if (IsTrapped(entity)) continue;
 
             var stats = entity.GetComponent<Stats>();
             if (stats == null) continue;
