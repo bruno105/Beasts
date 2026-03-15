@@ -41,6 +41,8 @@ public partial class Beasts : BaseSettingsPlugin<BeastsSettings>
         GameController.PluginBridge.SaveMethod("Beasts.IsAllowedBeastNearby", (int range) => IsAllowedBeastNearby(range));
         GameController.PluginBridge.SaveMethod("Beasts.CastSkillOnAllowedBeast", (uint skillId, int range) =>
             CastSkillOnAllowedBeast(skillId, range));
+        GameController.PluginBridge.SaveMethod("Beasts.CastNamedSkillOnAllowedBeast", (string skillName, int range) =>
+            CastNamedSkillOnAllowedBeast(skillName, range));
     }
 
     private async Task FetchPrices()
@@ -106,6 +108,18 @@ public partial class Beasts : BaseSettingsPlugin<BeastsSettings>
         castWithTarget(target, skillId);
         _hasLoggedMagicInputMissing = false;
         return true;
+    }
+
+    private bool CastNamedSkillOnAllowedBeast(string skillName, int range)
+    {
+        if (string.IsNullOrWhiteSpace(skillName)) return false;
+
+        var actor = GameController.Player?.GetComponent<Actor>();
+        var actorSkill = actor?.ActorSkills?.FirstOrDefault(skill =>
+            string.Equals(skill.Name, skillName, StringComparison.OrdinalIgnoreCase));
+        if (actorSkill == null || !actorSkill.CanBeUsed) return false;
+
+        return CastSkillOnAllowedBeast(actorSkill.Id, range);
     }
 
     private IEnumerable<Entity> GetAllowedBeastsInRange(int range)
