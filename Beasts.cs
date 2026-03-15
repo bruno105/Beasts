@@ -177,6 +177,7 @@ public partial class Beasts : BaseSettingsPlugin<BeastsSettings>
     }
 
     private static DateTime _lastDebugLog = DateTime.MinValue;
+    private static DateTime _lastNearbyDump = DateTime.MinValue;
 
     private IEnumerable<Entity> GetAllowedBeastsInRange(int range)
     {
@@ -187,6 +188,22 @@ public partial class Beasts : BaseSettingsPlugin<BeastsSettings>
             .ToHashSet(StringComparer.Ordinal);
 
         var shouldLog = (DateTime.Now - _lastDebugLog).TotalSeconds >= 3;
+
+        // Dump ALL nearby monster metadata every 5 seconds so we can find yellow beast paths
+        if ((DateTime.Now - _lastNearbyDump).TotalSeconds >= 5)
+        {
+            _lastNearbyDump = DateTime.Now;
+            var nearby = GameController.EntityListWrapper.ValidEntitiesByType[EntityType.Monster]
+                .Where(e => e != null && e.IsValid && e.IsAlive && e.DistancePlayer > 0 && e.DistancePlayer <= maxRange)
+                .Select(e => e.Metadata)
+                .Where(m => !string.IsNullOrEmpty(m))
+                .Distinct()
+                .ToList();
+            foreach (var m in nearby)
+            {
+                DebugWindow.LogMsg($"[Beasts Nearby] {m}", 8);
+            }
+        }
 
         foreach (var entity in GameController.EntityListWrapper.ValidEntitiesByType[EntityType.Monster])
         {
@@ -205,40 +222,43 @@ public partial class Beasts : BaseSettingsPlugin<BeastsSettings>
                 }
             }
 
-            if (!isBeast)
+            if (!isBeast) continue;
+
+            // Check if this is a minion of a known beast (path starts with a known beast path)
+            var isKnownOrMinion = false;
+            foreach (var knownPath in KnownBeastPaths)
             {
-                if (shouldLog && metadata.Contains("Bestiary", StringComparison.OrdinalIgnoreCase))
+                if (metadata.StartsWith(knownPath, StringComparison.Ordinal))
                 {
-                    DebugWindow.LogMsg($"[Beasts Debug] Skipped (no prefix match): {metadata}", 5);
+                    isKnownOrMinion = true;
+                    // Only allow if the base beast is selected in GUI
+                    if (selectedPaths.Contains(knownPath))
+                    {
+                        if (shouldLog)
+                        {
+                            DebugWindow.LogMsg($"[Beasts Debug] RED SELECTED allowed: {metadata}", 5);
+                            _lastDebugLog = DateTime.Now;
+                        }
+                        yield return entity;
+                    }
+                    else if (shouldLog)
+                    {
+                        DebugWindow.LogMsg($"[Beasts Debug] RED/MINION blocked: {metadata}", 5);
+                        _lastDebugLog = DateTime.Now;
+                    }
+                    break;
                 }
-                continue;
             }
 
-            var isKnownBeast = KnownBeastPaths.Contains(metadata);
-            if (!isKnownBeast)
+            if (!isKnownOrMinion)
             {
+                // Not a known red beast or its minion — treat as yellow, always allow
                 if (shouldLog)
                 {
                     DebugWindow.LogMsg($"[Beasts Debug] YELLOW allowed: {metadata}", 5);
                     _lastDebugLog = DateTime.Now;
                 }
                 yield return entity;
-                continue;
-            }
-
-            if (selectedPaths.Contains(metadata))
-            {
-                if (shouldLog)
-                {
-                    DebugWindow.LogMsg($"[Beasts Debug] RED SELECTED allowed: {metadata}", 5);
-                    _lastDebugLog = DateTime.Now;
-                }
-                yield return entity;
-            }
-            else if (shouldLog)
-            {
-                DebugWindow.LogMsg($"[Beasts Debug] RED UNSELECTED blocked: {metadata}", 5);
-                _lastDebugLog = DateTime.Now;
             }
         }
     }
