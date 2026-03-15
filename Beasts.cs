@@ -19,7 +19,10 @@ public partial class Beasts : BaseSettingsPlugin<BeastsSettings>
 {
     private readonly Dictionary<long, Entity> _trackedBeasts = new();
 
-    private static readonly HashSet<string> SelectedBeastPaths = new(StringComparer.Ordinal);
+    private static readonly HashSet<string> KnownBeastPaths = new(
+        BeastsDatabase.AllBeasts.Select(b => b.Path).Where(p => !string.IsNullOrEmpty(p)),
+        StringComparer.Ordinal
+    );
 
     private bool _hasLoggedMagicInputMissing;
     private bool _hasLoggedHotkeyFallbackMissing;
@@ -185,22 +188,25 @@ public partial class Beasts : BaseSettingsPlugin<BeastsSettings>
             var stats = entity.GetComponent<Stats>();
             if (stats == null) continue;
 
-            var isYellow = stats.StatDictionary.TryGetValue(GameStat.IsBestiaryYellowBeast, out var yellowVal) && yellowVal > 0;
-            var isRed = stats.StatDictionary.TryGetValue(GameStat.IsBestiaryRedBeast, out var redVal) && redVal > 0;
+            var isCapturable = stats.StatDictionary.TryGetValue(GameStat.IsCapturableMonster, out var capVal) && capVal > 0;
+            if (!isCapturable) continue;
 
-            if (isYellow)
+            // Check if this is a known red beast (exact match or variant/minion via StartsWith)
+            var metadata = entity.Metadata ?? "";
+            var matchedRedPath = (string)null;
+            foreach (var knownPath in KnownBeastPaths)
             {
-                if (shouldLog)
+                if (metadata.StartsWith(knownPath, StringComparison.Ordinal))
                 {
-                    DebugWindow.LogMsg($"[Beasts Debug] YELLOW allowed: {entity.Metadata}", 5);
-                    _lastDebugLog = DateTime.Now;
+                    matchedRedPath = knownPath;
+                    break;
                 }
-                yield return entity;
             }
-            else if (isRed)
+
+            if (matchedRedPath != null)
             {
-                var metadata = entity.Metadata ?? "";
-                if (selectedPaths.Contains(metadata))
+                // Red beast (or its minion/variant) — only allow if selected
+                if (selectedPaths.Contains(matchedRedPath))
                 {
                     if (shouldLog)
                     {
@@ -214,6 +220,16 @@ public partial class Beasts : BaseSettingsPlugin<BeastsSettings>
                     DebugWindow.LogMsg($"[Beasts Debug] RED UNSELECTED blocked: {metadata}", 5);
                     _lastDebugLog = DateTime.Now;
                 }
+            }
+            else
+            {
+                // Yellow beast — always allow
+                if (shouldLog)
+                {
+                    DebugWindow.LogMsg($"[Beasts Debug] YELLOW allowed: {metadata}", 5);
+                    _lastDebugLog = DateTime.Now;
+                }
+                yield return entity;
             }
         }
     }
