@@ -1,6 +1,7 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Beasts.Api;
 using Beasts.Data;
@@ -16,6 +17,8 @@ public partial class Beasts : BaseSettingsPlugin<BeastsSettings>
 {
     private readonly Dictionary<long, Entity> _trackedBeasts = new();
     private readonly Dictionary<long, Entity> _trackedYellowBeasts = new();
+    private int _isFetchingPrices;
+    private DateTime _lastPriceRefreshAttemptUtc = DateTime.MinValue;
 
     private const string TrappedBuffName = "capture_monster_trapped";
 
@@ -26,26 +29,63 @@ public partial class Beasts : BaseSettingsPlugin<BeastsSettings>
 
     public override void OnLoad()
     {
-        Settings.FetchBeastPrices.OnPressed += async () => await FetchPrices();
-        Task.Run(FetchPrices);
+        Settings.FetchBeastPrices.OnPressed += () => TriggerPriceRefresh(true);
+        TriggerPriceRefresh(true);
 
         GameController.PluginBridge.SaveMethod("Beasts.IsAllowedBeastNearby", (int range) => IsAllowedBeastNearby(range));
     }
 
-    private async Task FetchPrices()
+    private void TriggerPriceRefresh(bool forceRefresh = false)
     {
+        _ = FetchPrices(forceRefresh);
+    }
+
+    private async Task FetchPrices(bool forceRefresh = false)
+    {
+        if (!TryBeginPriceRefresh(forceRefresh)) return;
+
         DebugWindow.LogMsg("Fetching Beast Prices from PoeNinja...");
-        var prices = await PoeNinja.GetBeastsPrices();
-        foreach (var beast in BeastsDatabase.AllBeasts)
+        try
         {
-            Settings.BeastPrices[beast.DisplayName] = prices.TryGetValue(beast.DisplayName, out var price) ? price : -1;
+            var prices = await PoeNinja.GetBeastsPrices();
+            foreach (var beast in BeastsDatabase.AllBeasts)
+            {
+                Settings.BeastPrices[beast.DisplayName] = prices.TryGetValue(beast.DisplayName, out var price) ? price : -1;
+            }
+
+            Settings.LastUpdate = DateTime.Now;
+        }
+        catch (Exception exception)
+        {
+            DebugWindow.LogMsg($"Failed to fetch Beast Prices from PoeNinja: {exception.Message}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _isFetchingPrices, 0);
+        }
+    }
+
+    private bool TryBeginPriceRefresh(bool forceRefresh)
+    {
+        var refreshPeriodMinutes = Math.Max(1, Settings.PriceRefreshMinutes.Value);
+        var nowUtc = DateTime.UtcNow;
+
+        if (!forceRefresh)
+        {
+            if (!Settings.AutoRefreshPrices.Value) return false;
+            if (_lastPriceRefreshAttemptUtc.AddMinutes(refreshPeriodMinutes) > nowUtc) return false;
         }
 
-        Settings.LastUpdate = DateTime.Now;
+        if (Interlocked.CompareExchange(ref _isFetchingPrices, 1, 0) != 0) return false;
+
+        _lastPriceRefreshAttemptUtc = nowUtc;
+        return true;
     }
 
     public override Job Tick()
     {
+        TriggerPriceRefresh();
+
         var beastsToRemove = new List<long>();
 
         foreach (var trackedBeast in _trackedBeasts)
