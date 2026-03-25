@@ -7,7 +7,7 @@ namespace Beasts.ExileCore;
 public class BestiaryPanel : Element
 {
     public CapturedBeastsPanel CapturedBeastsPanel =>
-        GetObject<CapturedBeastsPanel>(GetChildAtIndex(0)?.GetChildAtIndex(18).Address ?? 0);
+        GetObject<CapturedBeastsPanel>(GetChildAtIndex(0)?.GetChildAtIndex(18)?.Address ?? 0);
 }
 
 public class CapturedBeastsPanel : Element
@@ -42,4 +42,8 @@ public class CapturedBeastsPanel : Element
 public class CapturedBeast : Element
 {
     public string DisplayName => Tooltip?.GetChildAtIndex(1)?.GetChildAtIndex(0).Text.Replace("-", "").Trim();
+
+    // Action buttons visible inside each beast slot
+    public Element ItemizeButton => GetChildAtIndex(0);
+    public Element ReleaseButton  => GetChildAtIndex(3);
 }

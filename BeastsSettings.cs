@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Windows.Forms;
 using Beasts.Data;
+using ExileCore.Shared.Attributes;
 using ExileCore.Shared.Helpers;
 using ExileCore.Shared.Interfaces;
 using ExileCore.Shared.Nodes;
@@ -134,6 +136,12 @@ public class BeastsSettings : ISettings
     
     public ToggleNode ShowBestiaryPanel { get; set; } = new ToggleNode(true);
 
+    public ToggleNode ShowAllPricesInBestiaryPanel { get; set; } = new ToggleNode(true);
+
+    public ToggleNode ShowBestiaryDebug { get; set; } = new ToggleNode(false);
+
+    public BeastAutomationSettings Automation { get; set; } = new();
+
     public ToggleNode AutoRefreshPrices { get; set; } = new ToggleNode(true);
 
     public RangeNode<int> PriceRefreshMinutes { get; set; } = new(15, 1, 60);
@@ -143,4 +151,55 @@ public class BeastsSettings : ISettings
     [JsonIgnore] public CustomNode LastUpdated { get; set; }
 
     [JsonIgnore] public CustomNode BeastPicker { get; set; }
+}
+
+[Submenu(CollapsedByDefault = false)]
+public class BeastAutomationSettings
+{
+    /// <summary>Toggle to start/stop the automation loop.</summary>
+    public ToggleNode Enable { get; set; } = new ToggleNode(false);
+
+    /// <summary>Hotkey to toggle automation on/off without opening settings.</summary>
+    public HotkeyNode Hotkey { get; set; } = new HotkeyNode(Keys.None);
+
+    /// <summary>
+    /// Beasts worth this value or more are itemized; all others are released.
+    /// Yellow beasts not tracked by poe.ninja are treated as 0c and always released
+    /// unless ItemizeYellowBeasts is ON.
+    /// </summary>
+    public RangeNode<float> ItemizeAboveChaos { get; set; } = new RangeNode<float>(5f, 0f, 500f);
+
+    /// <summary>When ON, itemize all yellow beasts regardless of their price.</summary>
+    public ToggleNode ItemizeYellowBeasts { get; set; } = new ToggleNode(false);
+
+    /// <summary>When ON, stop the automation if inventory is full. Recommended: ON.</summary>
+    public ToggleNode CheckInventoryBeforeItemize { get; set; } = new ToggleNode(true);
+
+    /// <summary>Input timing and humanization settings.</summary>
+    public BeastDelayOptions Delays { get; set; } = new();
+}
+
+[Submenu(CollapsedByDefault = true)]
+public class BeastDelayOptions
+{
+    /// <summary>
+    /// Random delay between consecutive beast actions (ms). X = min, Y = max.
+    /// The automation waits a freshly-rolled random value in this range after each click
+    /// before acting on the next beast — mimics natural human pacing.
+    /// </summary>
+    public RangeNode<System.Numerics.Vector2> MinMaxActionDelayMs { get; set; } =
+        new(new System.Numerics.Vector2(200, 400), new System.Numerics.Vector2(50, 50), new System.Numerics.Vector2(2000, 2000));
+
+    /// <summary>
+    /// Random delay (ms) added after moving the cursor to a button and before pressing it.
+    /// X = min, Y = max. Simulates the human reaction time between "mouse arrived" and "finger clicks".
+    /// </summary>
+    public RangeNode<System.Numerics.Vector2> MinMaxPreClickDelayMs { get; set; } =
+        new(new System.Numerics.Vector2(20, 60), new System.Numerics.Vector2(5, 5), new System.Numerics.Vector2(300, 300));
+
+    /// <summary>
+    /// Random pixel jitter applied to the click position within the button rect.
+    /// Higher values spread clicks more — avoids pixel-perfect patterns.
+    /// </summary>
+    public RangeNode<int> ClickJitter { get; set; } = new RangeNode<int>(4, 0, 20);
 }

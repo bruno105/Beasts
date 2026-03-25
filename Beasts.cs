@@ -27,12 +27,21 @@ public partial class Beasts : BaseSettingsPlugin<BeastsSettings>
         StringComparer.Ordinal
     );
 
+    // O(1) path → Beast lookup used in Render methods instead of O(n) FirstOrDefault/All
+    internal static readonly Dictionary<string, Beast> BeastByPath =
+        BeastsDatabase.AllBeasts
+            .Where(b => !string.IsNullOrEmpty(b.Path))
+            .ToDictionary(b => b.Path, b => b, StringComparer.Ordinal);
+
     public override void OnLoad()
     {
         Settings.FetchBeastPrices.OnPressed += () => TriggerPriceRefresh(true);
         TriggerPriceRefresh(true);
 
         GameController.PluginBridge.SaveMethod("Beasts.IsAllowedBeastNearby", (int range) => IsAllowedBeastNearby(range));
+
+        Input.RegisterKey(Settings.Automation.Hotkey);
+        Settings.Automation.Hotkey.OnValueChanged += () => Input.RegisterKey(Settings.Automation.Hotkey);
     }
 
     private void TriggerPriceRefresh(bool forceRefresh = false)
@@ -85,6 +94,11 @@ public partial class Beasts : BaseSettingsPlugin<BeastsSettings>
     public override Job Tick()
     {
         TriggerPriceRefresh();
+
+        // Keep inventory snapshot up-to-date for automation inventory check
+        var serverData = GameController?.Game?.IngameState?.Data?.ServerData;
+        if (serverData?.PlayerInventories?.Count > 0)
+            _automationInventory = serverData.PlayerInventories[0].Inventory;
 
         var beastsToRemove = new List<long>();
 
