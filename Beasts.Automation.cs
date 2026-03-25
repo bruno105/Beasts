@@ -227,8 +227,8 @@ public partial class Beasts
         await TaskUtils.NextFrame();
         Input.KeyUp(Keys.ControlKey);
 
-        // 4. Roll next inter-action delay and restart the cooldown timer.
-        _nextActionDelayMs = RandomInRange(Settings.Automation.Delays.MinMaxActionDelayMs.Value);
+        // 4. Use configured action delay and restart the cooldown timer.
+        _nextActionDelayMs = Settings.Automation.ActionDelayMs.Value;
         _sinceLastClick.Restart();
         return true;
     }
@@ -248,7 +248,7 @@ public partial class Beasts
         if (!_bestiaryVisible || _cachedBeasts.Count == 0) return true;
 
         var cfg       = Settings.Automation;
-        var threshold = cfg.ItemizeAboveChaos.Value;
+        int threshold = cfg.ItemizeAboveChaos.Value;
         var hasSpace  = HasInventorySpace();
 
         // If inventory is full, stop — nothing to do until the player makes room.

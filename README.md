@@ -21,10 +21,11 @@ A [PoEHelper / ExileCore](https://github.com/exApiTools/ExileCore) plugin for Pa
 ### Automation
 - Automatically **itemizes** beasts worth ≥ *X chaos* and **releases** the rest
 - Configurable **Itemize Yellow Beasts** toggle (independent of chaos threshold)
-- Stops automatically when **inventory is full**
+- Stops automatically when **inventory is full** or when the **Bestiary panel is closed**
 - Only acts on beasts visible in the current scroll viewport — never clicks off-screen slots
 - Waits for server confirmation before the next action (no double-clicks)
 - Hotkey to toggle automation on/off without opening settings
+- **Status badge** in the Tracker window: "● Automation in progress..." while running, "✓ Automation completed" (with fade-out) after it stops
 
 ### Human-like Input
 - **Perlin noise** position jitter — click positions vary smoothly, avoiding pixel-perfect patterns
@@ -66,14 +67,14 @@ dotnet build
 |---|---|
 | Enable | Toggle the automation loop on/off |
 | Hotkey | Keybind to toggle automation without opening settings |
-| Itemize Above Chaos | Beasts at or above this value are itemized; below are released |
+| Itemize Above Chaos | Integer threshold (default: 4c) — beasts at or above are itemized; below are released |
 | Itemize Yellow Beasts | When ON, itemize all yellow beasts regardless of price |
 | Check Inventory Before Itemize | Stop automation when inventory is full |
+| Action Delay Ms | Fixed delay (ms) between consecutive itemize/release actions (default: 300 ms) |
 
 ### Automation → Delays
 | Setting | Description |
 |---|---|
-| Min/Max Action Delay Ms | Random delay between beast actions (X = min, Y = max) |
 | Min/Max Pre-Click Delay Ms | Random delay between cursor arriving and clicking |
 | Click Jitter | Pixel spread applied to click position within the button |
 

@@ -167,13 +167,19 @@ public class BeastAutomationSettings
     /// Yellow beasts not tracked by poe.ninja are treated as 0c and always released
     /// unless ItemizeYellowBeasts is ON.
     /// </summary>
-    public RangeNode<float> ItemizeAboveChaos { get; set; } = new RangeNode<float>(5f, 0f, 500f);
+    public RangeNode<int> ItemizeAboveChaos { get; set; } = new RangeNode<int>(4, 0, 500);
 
     /// <summary>When ON, itemize all yellow beasts regardless of their price.</summary>
     public ToggleNode ItemizeYellowBeasts { get; set; } = new ToggleNode(false);
 
     /// <summary>When ON, stop the automation if inventory is full. Recommended: ON.</summary>
     public ToggleNode CheckInventoryBeforeItemize { get; set; } = new ToggleNode(true);
+
+    /// <summary>
+    /// Fixed delay (ms) between consecutive itemize/release actions.
+    /// Increase if the automation misses clicks due to UI lag.
+    /// </summary>
+    public RangeNode<int> ActionDelayMs { get; set; } = new RangeNode<int>(300, 50, 3000);
 
     /// <summary>Input timing and humanization settings.</summary>
     public BeastDelayOptions Delays { get; set; } = new();

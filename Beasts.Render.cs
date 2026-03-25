@@ -53,6 +53,12 @@ public partial class Beasts
     private HashSet<string> _selectedBeastPathsSet = new(StringComparer.Ordinal);
     private const int BeastCacheMs = 250;
 
+    // ── Automation status ─────────────────────────────────────────────────────
+    private enum AutomationStatus { Idle, InProgress, Completed }
+    private AutomationStatus _automationStatus = AutomationStatus.Idle;
+    private DateTime _automationCompletedAt = DateTime.MinValue;
+    private const float AutomationCompletedShowSeconds = 5f;
+
     // True when any bestiary feature is active — gates the cache refresh so we
     // never traverse the UI tree just to find nothing to do.
     private bool NeedsBestiaryCache =>
@@ -82,6 +88,24 @@ public partial class Beasts
 
         if (Settings.Automation.Hotkey.PressedOnce())
             Settings.Automation.Enable.Value = !Settings.Automation.Enable.Value;
+
+        // Auto-stop when bestiary closes while automation was running, and track
+        // status for the tracker window display.
+        if (_automationStatus == AutomationStatus.InProgress)
+        {
+            if (!_bestiaryVisible || !Settings.Automation.Enable.Value)
+            {
+                Settings.Automation.Enable.Value = false;
+                _automationStatus = AutomationStatus.Completed;
+                _automationCompletedAt = DateTime.Now;
+            }
+        }
+        else if (Settings.Automation.Enable.Value && _bestiaryVisible)
+            _automationStatus = AutomationStatus.InProgress;
+
+        if (_automationStatus == AutomationStatus.Completed &&
+            (DateTime.Now - _automationCompletedAt).TotalSeconds >= AutomationCompletedShowSeconds)
+            _automationStatus = AutomationStatus.Idle;
 
         if (Settings.Automation.Enable.Value)
             TaskUtils.RunOrRestart(ref _automationTask, RunAutomationAsync);
@@ -475,6 +499,21 @@ public partial class Beasts
         ImGui.SetNextWindowSize(new Vector2(0, 0));
         ImGui.SetNextWindowBgAlpha(0.6f);
         ImGui.Begin("Beasts Window", ImGuiWindowFlags.NoDecoration);
+
+        if (_automationStatus != AutomationStatus.Idle)
+        {
+            if (_automationStatus == AutomationStatus.InProgress)
+            {
+                ImGui.TextColored(new System.Numerics.Vector4(0f, 1f, 0.4f, 1f), "● Automation in progress...");
+            }
+            else
+            {
+                var elapsed = (float)(DateTime.Now - _automationCompletedAt).TotalSeconds;
+                var alpha = Math.Max(0f, 1f - elapsed / AutomationCompletedShowSeconds);
+                ImGui.TextColored(new System.Numerics.Vector4(0.5f, 0.9f, 1f, alpha), "✓ Automation completed");
+            }
+            ImGui.Separator();
+        }
 
         if (ImGui.BeginTable("Beasts Table", 2,
                 ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersOuter | ImGuiTableFlags.BordersV))
