@@ -69,11 +69,26 @@ public partial class Beasts
 
     public override void Render()
     {
-        // Only rebuild the bestiary panel cache when at least one feature needs it
-        // AND the left panel is open (fast pre-check before the 6-level UI traversal).
+        // Rebuild the selected-beast path set unconditionally so DrawBeastsWindow,
+        // DrawInGameBeasts and DrawBeastsOnMap always have up-to-date data regardless
+        // of which other features are enabled.
+        if (_beastCacheTimer.ElapsedMilliseconds >= BeastCacheMs)
+        {
+            _selectedBeastPathsSet = Settings.Beasts
+                .Select(b => b.Path)
+                .Where(p => !string.IsNullOrEmpty(p))
+                .ToHashSet(StringComparer.Ordinal);
+        }
+
+        // Only rebuild the full bestiary panel cache (expensive UI traversal) when at
+        // least one feature that needs it is active AND the left panel is open.
         if (NeedsBestiaryCache && _beastCacheTimer.ElapsedMilliseconds >= BeastCacheMs)
         {
             RefreshBeastCache();
+            _beastCacheTimer.Restart();
+        }
+        else if (_beastCacheTimer.ElapsedMilliseconds >= BeastCacheMs)
+        {
             _beastCacheTimer.Restart();
         }
 
@@ -125,13 +140,8 @@ public partial class Beasts
         _cachedBeasts.Clear();
         _bestiaryVisible = false;
 
-        // Always rebuild selected-beast lookup sets so DrawInGameBeasts/DrawBeastsOnMap
-        // work correctly even when the bestiary panel is not open.
-        _selectedBeastPathsSet = Settings.Beasts
-            .Select(b => b.Path)
-            .Where(p => !string.IsNullOrEmpty(p))
-            .ToHashSet(StringComparer.Ordinal);
-
+        // _selectedBeastPathsSet is rebuilt unconditionally in Render() — no need to
+        // repeat it here. Only compute the display-name set needed for _cachedBeasts.
         var selectedDisplayNames = Settings.Beasts
             .Select(b => b.DisplayName)
             .Where(n => !string.IsNullOrEmpty(n))
