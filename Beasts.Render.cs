@@ -4,12 +4,8 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using Beasts.Data;
-using Beasts.ExileCore;
 using ExileCore.PoEMemory.Components;
 using ExileCore.PoEMemory.Elements;
-// Alias resolves the ambiguity: both namespaces expose a CapturedBeast type.
-// We need our custom one (has DisplayName, ItemizeButton, ReleaseButton).
-using BestiaryBeast = Beasts.ExileCore.CapturedBeast;
 using ExileCore.PoEMemory.Elements.InventoryElements;
 using ExileCore.Shared;
 using ExileCore.Shared.Enums;
@@ -40,7 +36,7 @@ public partial class Beasts
     // and share the result across all draw methods and the automation task.
 
     private record CachedBeastEntry(
-        BestiaryBeast Element,
+        CapturedBeast Element,
         string DisplayName,
         float Price,
         bool IsGenericYellow,
@@ -150,13 +146,13 @@ public partial class Beasts
         var ingameUi = GameController.IngameState.IngameUi;
 
         // Fast pre-check: if the left panel isn't open at all, the bestiary can't
-        // be visible — skip the expensive 6-level UI traversal entirely.
+        // be visible -- skip the expensive UI traversal entirely.
         if (!ingameUi.OpenLeftPanel.IsVisible) return;
 
-        var bestiary = ingameUi.GetBestiaryPanel();
+        var bestiary = ingameUi.ChallengesPanel?.TabContainer?.BestiaryTab;
         if (bestiary == null || !bestiary.IsVisible) return;
 
-        var cbp = bestiary.CapturedBeastsPanel;
+        var cbp = bestiary.CapturedBeastsTab;
         if (cbp == null || !cbp.IsVisible) return;
 
         _bestiaryVisible = true;
@@ -166,7 +162,7 @@ public partial class Beasts
         {
             try
             {
-                var name = beast.DisplayName;
+                var name = beast.Name?.Replace("-", "").Trim();
                 if (string.IsNullOrEmpty(name)) continue;
 
                 var isGenericYellow = !Settings.BeastPrices.TryGetValue(name, out var price);
@@ -406,7 +402,7 @@ public partial class Beasts
 
     // ── Debug window ──────────────────────────────────────────────────────────
 
-    private static readonly string DebugOutputPath = @"C:\Users\bruno\Documents\Codex\Bridge\bestiary_debug.txt";
+    private static readonly string DebugOutputPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bestiary_debug.txt");
     private DateTime _lastDebugWrite = DateTime.MinValue;
 
     private void DrawBestiaryDebug()
@@ -419,52 +415,18 @@ public partial class Beasts
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"=== Bestiary Debug {DateTime.Now:HH:mm:ss} ===");
 
-        var raw = ui.GetChildAtIndex(50)
-            ?.GetChildAtIndex(2)
-            ?.GetChildAtIndex(0)
-            ?.GetChildAtIndex(1)
-            ?.GetChildAtIndex(1);
+        var challengesPanel = ui.ChallengesPanel;
+        var cpLine = $"ChallengesPanel null={challengesPanel == null}  vis={challengesPanel?.IsVisible}";
+        ImGui.Text(cpLine); sb.AppendLine(cpLine);
 
-        var rawLine = $"[50][2][0][1][1] null={raw == null}  cc={raw?.ChildCount ?? -1}";
-        ImGui.Text(rawLine); sb.AppendLine(rawLine);
-
-        if (raw != null)
-        {
-            for (var i = 0; i < Math.Min(raw.ChildCount, 30); i++)
-            {
-                var ch = raw.GetChildAtIndex(i);
-                var line = $"  [{i}] vis={ch?.IsVisible}  cc={ch?.ChildCount ?? -1}  txt=\"{ch?.Text ?? ""}\"";
-                ImGui.Text(line); sb.AppendLine(line);
-                if (ch != null && ch.IsVisible && ch.ChildCount > 0)
-                {
-                    for (var j = 0; j < Math.Min(ch.ChildCount, 25); j++)
-                    {
-                        var gc = ch.GetChildAtIndex(j);
-                        sb.AppendLine($"    [{i}][{j}] vis={gc?.IsVisible}  cc={gc?.ChildCount ?? -1}  txt=\"{gc?.Text ?? ""}\"");
-                        if (gc != null && gc.IsVisible && gc.ChildCount > 0 && gc.ChildCount <= 20)
-                        {
-                            for (var k = 0; k < Math.Min(gc.ChildCount, 10); k++)
-                            {
-                                var ggc = gc.GetChildAtIndex(k);
-                                sb.AppendLine($"      [{i}][{j}][{k}] vis={ggc?.IsVisible}  cc={ggc?.ChildCount ?? -1}  txt=\"{ggc?.Text ?? ""}\"");
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        ImGui.Separator();
-        sb.AppendLine("---");
-
-        var bestiary = ui.GetBestiaryPanel();
-        var bLine = $"BestiaryPanel null={bestiary == null}  vis={bestiary?.IsVisible}  addr={bestiary?.Address}";
+        var bestiary = challengesPanel?.TabContainer?.BestiaryTab;
+        var bLine = $"BestiaryTab null={bestiary == null}  vis={bestiary?.IsVisible}  addr={bestiary?.Address}";
         ImGui.Text(bLine); sb.AppendLine(bLine);
 
-        global::Beasts.ExileCore.CapturedBeastsPanel? cbp = null;
-        try { cbp = bestiary?.CapturedBeastsPanel; }
-        catch (Exception ex) { ImGui.Text($"CapturedBeastsPanel threw: {ex.Message}"); sb.AppendLine($"CapturedBeastsPanel threw: {ex.Message}"); }
-        var cbpLine = $"CapturedBeastsPanel null={cbp == null}  vis={cbp?.IsVisible}  addr={cbp?.Address}";
+        CapturedBeastsTab cbp = null;
+        try { cbp = bestiary?.CapturedBeastsTab; }
+        catch (Exception ex) { ImGui.Text($"CapturedBeastsTab threw: {ex.Message}"); sb.AppendLine($"CapturedBeastsTab threw: {ex.Message}"); }
+        var cbpLine = $"CapturedBeastsTab null={cbp == null}  vis={cbp?.IsVisible}  addr={cbp?.Address}";
         ImGui.Text(cbpLine); sb.AppendLine(cbpLine);
 
         // Use cached data — avoids re-reading 660 beast names per debug frame
