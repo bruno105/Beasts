@@ -176,12 +176,18 @@ public class BeastAutomationSettings
     public ToggleNode CheckInventoryBeforeItemize { get; set; } = new ToggleNode(true);
 
     /// <summary>
+    /// Input mode: SimpleDelay uses a bare-minimum configurable delay,
+    /// InputHumanizer delegates all mouse input to the InputHumanizer plugin via PluginBridge.
+    /// </summary>
+    public ListNode InputMode { get; set; } = new ListNode { Value = "SimpleDelay" };
+
+    /// <summary>
     /// Fixed delay (ms) between consecutive itemize/release actions.
     /// Increase if the automation misses clicks due to UI lag.
     /// </summary>
     public RangeNode<int> ActionDelayMs { get; set; } = new RangeNode<int>(300, 50, 3000);
 
-    /// <summary>Input timing and humanization settings.</summary>
+    /// <summary>Input timing settings (SimpleDelay mode only).</summary>
     public BeastDelayOptions Delays { get; set; } = new();
 }
 
@@ -189,23 +195,8 @@ public class BeastAutomationSettings
 public class BeastDelayOptions
 {
     /// <summary>
-    /// Random delay between consecutive beast actions (ms). X = min, Y = max.
-    /// The automation waits a freshly-rolled random value in this range after each click
-    /// before acting on the next beast — mimics natural human pacing.
+    /// Delay (ms) after moving the cursor to a button before clicking.
+    /// Only used in SimpleDelay mode.
     /// </summary>
-    public RangeNode<System.Numerics.Vector2> MinMaxActionDelayMs { get; set; } =
-        new(new System.Numerics.Vector2(200, 400), new System.Numerics.Vector2(50, 50), new System.Numerics.Vector2(2000, 2000));
-
-    /// <summary>
-    /// Random delay (ms) added after moving the cursor to a button and before pressing it.
-    /// X = min, Y = max. Simulates the human reaction time between "mouse arrived" and "finger clicks".
-    /// </summary>
-    public RangeNode<System.Numerics.Vector2> MinMaxPreClickDelayMs { get; set; } =
-        new(new System.Numerics.Vector2(20, 60), new System.Numerics.Vector2(5, 5), new System.Numerics.Vector2(300, 300));
-
-    /// <summary>
-    /// Random pixel jitter applied to the click position within the button rect.
-    /// Higher values spread clicks more — avoids pixel-perfect patterns.
-    /// </summary>
-    public RangeNode<int> ClickJitter { get; set; } = new RangeNode<int>(4, 0, 20);
+    public RangeNode<int> PreClickDelayMs { get; set; } = new RangeNode<int>(30, 5, 300);
 }
