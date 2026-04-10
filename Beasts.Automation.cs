@@ -280,7 +280,7 @@ public partial class Beasts
 
                 if (shouldItemize)
                 {
-                    var btn = entry.Element.ItemizeButton;
+                    var btn = entry.Element[0];
                     if (btn == null) continue;
 
                     await CtrlClickElement(btn);
