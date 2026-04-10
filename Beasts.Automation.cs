@@ -17,7 +17,7 @@ public partial class Beasts
     private readonly Stopwatch _sinceLastClick = Stopwatch.StartNew();
     private ServerInventory _automationInventory;
 
-    private int _nextActionDelayMs = 300;
+    private int _nextActionDelayMs;
     private readonly Random _random = new();
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -35,10 +35,10 @@ public partial class Beasts
     }
 
     /// <summary>
-    /// Polls until the beast element disappears from the UI, confirming server
-    /// processed the release/itemize. Uses <c>IsVisible</c> (single memory read)
-    /// rather than <c>GetClientRect</c> for minimal overhead per frame.
-    /// Times out after <paramref name="timeoutMs"/> ms and proceeds anyway.
+    /// Polls until the beast element disappears from the UI, confirming the server
+    /// processed the release/itemize (WTC -- Wait To Confirm). Uses <c>IsVisible</c>
+    /// (single memory read) rather than <c>GetClientRect</c> for minimal overhead.
+    /// Returns <c>true</c> if the element disappeared (confirmed), <c>false</c> on timeout.
     /// </summary>
     private static async SyncTask<bool> WaitForBeastProcessed(Element beastElement, int timeoutMs = 600)
     {
@@ -49,10 +49,10 @@ public partial class Beasts
             {
                 if (!beastElement.IsVisible) return true;
             }
-            catch { return true; } // address invalidated — element is gone
+            catch { return true; } // address invalidated -- element is gone
             await TaskUtils.NextFrame();
         }
-        return true;
+        return false; // timed out -- server did not confirm in time
     }
 
     /// <summary>
@@ -109,13 +109,12 @@ public partial class Beasts
         var windowOffset = GameController.Window.GetWindowRectangleTimeCache.TopLeft.ToVector2Num();
         var clickPos = GetRandomClickPos(element.GetClientRect()) + windowOffset;
 
-        bool ok = Settings.Automation.InputMode.Value == "InputHumanizer"
+        bool ok = Settings.Automation.UseInputHumanizer.Value
             ? await CtrlClickViaHumanizer(clickPos)
             : await CtrlClickSimple(clickPos);
 
         if (!ok) return false;
 
-        _nextActionDelayMs = Settings.Automation.ActionDelayMs.Value;
         _sinceLastClick.Restart();
         return true;
     }
@@ -123,7 +122,7 @@ public partial class Beasts
     private async SyncTask<bool> CtrlClickSimple(Vector2 clickPos)
     {
         Input.SetCursorPos(clickPos);
-        await WaitMs(Settings.Automation.Delays.PreClickDelayMs.Value);
+        await WaitMs(Settings.Automation.PreClickDelayMs.Value);
 
         Input.KeyDown(Keys.ControlKey);
         await TaskUtils.NextFrame();
@@ -173,7 +172,7 @@ public partial class Beasts
         if (!GameController.Window.IsForeground()) return true;
         if (!Settings.Enable.Value) return true;
 
-        // Gate on the freshly-rolled random delay (re-rolled after each click).
+        // WTC fallback: only delays if the previous action timed out without server confirmation.
         if (_sinceLastClick.ElapsedMilliseconds < _nextActionDelayMs)
             return true;
 
@@ -211,24 +210,16 @@ public partial class Beasts
                 else
                     shouldItemize = entry.Price >= threshold;
 
-                if (shouldItemize)
-                {
-                    var btn = entry.Element[0];
-                    if (btn == null) continue;
+                var btn = shouldItemize ? entry.Element[0] : entry.Element.ReleaseButton;
+                if (btn == null) continue;
 
-                    await CtrlClickElement(btn);
-                    await WaitForBeastProcessed(entry.Element);
-                    return true;
-                }
-                else
-                {
-                    var btn = entry.Element.ReleaseButton;
-                    if (btn == null) continue;
+                await CtrlClickElement(btn);
+                var confirmed = await WaitForBeastProcessed(entry.Element);
 
-                    await CtrlClickElement(btn);
-                    await WaitForBeastProcessed(entry.Element);
-                    return true;
-                }
+                // WTC: if server confirmed (element gone), proceed immediately.
+                // If timed out, apply fallback delay before next action.
+                _nextActionDelayMs = confirmed ? 0 : Settings.Automation.FallbackDelayMs.Value;
+                return true;
             }
             catch { /* element read failure — skip beast */ }
         }

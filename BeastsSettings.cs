@@ -176,27 +176,24 @@ public class BeastAutomationSettings
     public ToggleNode CheckInventoryBeforeItemize { get; set; } = new ToggleNode(true);
 
     /// <summary>
-    /// Input mode: SimpleDelay uses a bare-minimum configurable delay,
-    /// InputHumanizer delegates all mouse input to the InputHumanizer plugin via PluginBridge.
+    /// When ON, mouse input is handled by the InputHumanizer plugin (curved movement,
+    /// Gaussian delays). When OFF, uses simple direct input with a configurable pre-click delay.
     /// </summary>
-    public ListNode InputMode { get; set; } = new ListNode { Value = "SimpleDelay" };
+    [Menu("Use Input Humanizer", "Delegates mouse movement and click timing to the InputHumanizer plugin via PluginBridge. Disable to use simple direct input instead.")]
+    public ToggleNode UseInputHumanizer { get; set; } = new ToggleNode(false);
 
     /// <summary>
-    /// Fixed delay (ms) between consecutive itemize/release actions.
-    /// Increase if the automation misses clicks due to UI lag.
+    /// Delay (ms) before each click. Only used when Input Humanizer is OFF.
     /// </summary>
-    public RangeNode<int> ActionDelayMs { get; set; } = new RangeNode<int>(300, 50, 3000);
-
-    /// <summary>Input timing settings (SimpleDelay mode only).</summary>
-    public BeastDelayOptions Delays { get; set; } = new();
-}
-
-[Submenu(CollapsedByDefault = true)]
-public class BeastDelayOptions
-{
-    /// <summary>
-    /// Delay (ms) after moving the cursor to a button before clicking.
-    /// Only used in SimpleDelay mode.
-    /// </summary>
+    [ConditionalDisplay(nameof(UseInputHumanizer), false)]
+    [Menu("Pre-Click Delay (ms)", "Delay after moving cursor to button before clicking. Only used in simple input mode.")]
     public RangeNode<int> PreClickDelayMs { get; set; } = new RangeNode<int>(30, 5, 300);
+
+    /// <summary>
+    /// Fallback delay (ms) between actions if the server does not confirm processing
+    /// within the WTC timeout. When the server confirms quickly, the next action
+    /// starts immediately with no inter-action delay.
+    /// </summary>
+    [Menu("Fallback Delay (ms)", "Only applies when the server does not confirm the action in time. Normally actions proceed as soon as the panel updates.")]
+    public RangeNode<int> FallbackDelayMs { get; set; } = new RangeNode<int>(300, 50, 3000);
 }

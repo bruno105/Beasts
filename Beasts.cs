@@ -40,8 +40,6 @@ public partial class Beasts : BaseSettingsPlugin<BeastsSettings>
 
         GameController.PluginBridge.SaveMethod("Beasts.IsAllowedBeastNearby", (int range) => IsAllowedBeastNearby(range));
 
-        Settings.Automation.InputMode.SetListValues(["SimpleDelay", "InputHumanizer"]);
-
         Input.RegisterKey(Settings.Automation.Hotkey);
         Settings.Automation.Hotkey.OnValueChanged += () => Input.RegisterKey(Settings.Automation.Hotkey);
     }
