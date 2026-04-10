@@ -15,9 +15,9 @@ namespace Beasts;
 
 public class BeastsSettings : ISettings
 {
-    public List<Beast> Beasts { get; set; } = new();
-    public Dictionary<string, float> BeastPrices { get; set; } = new();
-    public DateTime LastUpdate { get; set; } = DateTime.MinValue;
+    [IgnoreMenu] public List<Beast> Beasts { get; set; } = new();
+    [IgnoreMenu] public Dictionary<string, float> BeastPrices { get; set; } = new();
+    [IgnoreMenu] public DateTime LastUpdate { get; set; } = DateTime.MinValue;
 
     public BeastsSettings()
     {
