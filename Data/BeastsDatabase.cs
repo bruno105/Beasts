@@ -373,10 +373,10 @@ public static class BeastsDatabase
         new Beast
         {
             DisplayName = "Fenumal Queen",
-            Path = "Create a Unique: Staff",
+            Path = "Metadata/Monsters/LeagueBestiary/InsectSpawnerBestiary",
             Crafts =
             [
-                "Metadata/Monsters/LeagueBestiary/InsectSpawnerBestiary",
+                "Create a Unique: Staff",
                 "Modify Mods on an Item: Add a Mod to a Redeemer Item"
             ]
         },
