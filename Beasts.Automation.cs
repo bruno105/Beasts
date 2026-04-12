@@ -20,6 +20,17 @@ public partial class Beasts
     private int _nextActionDelayMs;
     private readonly Random _random = new();
 
+    /// <summary>
+    /// Checks whether a beast should be itemized (true) or released (false)
+    /// based on the current automation settings and price threshold.
+    /// </summary>
+    private bool ShouldItemizeBeast(CachedBeastEntry entry, int threshold)
+    {
+        if (entry.IsGenericYellow)
+            return Settings.Automation.ItemizeYellowBeasts.Value;
+        return entry.Price >= threshold;
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -199,6 +210,31 @@ public partial class Beasts
             var viewTop    = _cachedPanelRect.Top;
             var viewBottom = _cachedPanelRect.Bottom;
 
+            // ── Look-ahead: count releases before next itemize target ─────────
+            // -1 = no itemize target visible (all releases -- full speed)
+            //  0 = first visible beast IS the itemize target (CAREFUL)
+            //  1-2 = approaching an itemize target (SLOW)
+            //  3+ = far away (FAST)
+            int releasesBeforeItemize = -1;
+            foreach (var scan in _cachedBeasts)
+            {
+                try
+                {
+                    var scanRect = scan.Element.GetClientRect();
+                    if (scanRect.Width <= 0 || scanRect.Height <= 0) continue;
+                    if (scanRect.Bottom < viewTop || scanRect.Top > viewBottom) continue;
+
+                    if (ShouldItemizeBeast(scan, threshold))
+                    {
+                        if (releasesBeforeItemize < 0) releasesBeforeItemize = 0;
+                        break;
+                    }
+                    releasesBeforeItemize = releasesBeforeItemize < 0 ? 1 : releasesBeforeItemize + 1;
+                }
+                catch { }
+            }
+
+            // ── Process the first visible beast ───────────────────────────────
             bool clickedAny = false;
             var countBefore = _cachedBeasts.Count;
 
@@ -210,23 +246,37 @@ public partial class Beasts
                     if (rect.Width <= 0 || rect.Height <= 0) continue;
                     if (rect.Bottom < viewTop || rect.Top > viewBottom) continue;
 
-                    // Yellow beasts (not in poe.ninja price list) are handled by their
-                    // own toggle -- independent of the chaos threshold.
-                    bool shouldItemize;
-                    if (entry.IsGenericYellow)
-                        shouldItemize = cfg.ItemizeYellowBeasts.Value;
-                    else
-                        shouldItemize = entry.Price >= threshold;
+                    bool shouldItemize = ShouldItemizeBeast(entry, threshold);
+
+                    // CAREFUL zone: before clicking an itemize target, verify the
+                    // element still matches what we cached. If the UI shifted and
+                    // this address now points to a different beast, re-cache instead
+                    // of risking a misclick on a valuable beast.
+                    if (shouldItemize)
+                    {
+                        var liveName = entry.Element.Name?.Replace("-", "").Trim();
+                        if (liveName != entry.DisplayName)
+                        {
+                            RefreshBeastCache();
+                            _beastCacheTimer.Restart();
+                            clickedAny = true; // force while loop restart
+                            break;
+                        }
+                    }
 
                     var btn = shouldItemize ? entry.Element[0] : entry.Element.ReleaseButton;
                     if (btn == null) continue;
+
+                    string zone = shouldItemize ? "CAREFUL"
+                        : releasesBeforeItemize >= 0 && releasesBeforeItemize <= 2
+                            ? $"SLOW({releasesBeforeItemize})"
+                            : "FAST";
 
                     loopSw.Restart();
                     await CtrlClickElement(btn);
                     var clickMs = loopSw.ElapsedMilliseconds;
 
                     // WTC: poll cache refresh until beast count decreases.
-                    // IsVisible on individual elements never flips -- count is reliable.
                     var wtcSw = Stopwatch.StartNew();
                     var confirmed = await WaitForBeastCountChange(countBefore);
                     var wtcMs = wtcSw.ElapsedMilliseconds;
@@ -236,14 +286,26 @@ public partial class Beasts
                     {
                         _nextActionDelayMs = 0;
                         // Cache is already refreshed inside WaitForBeastCountChange.
-                        LogMsg($"[Beast] click={clickMs}ms wtc={wtcMs}ms ping={ping}ms cache={_cachedBeasts.Count} remaining");
+                        LogMsg($"[Beast] click={clickMs}ms wtc={wtcMs}ms ping={ping}ms zone={zone} cache={_cachedBeasts.Count} remaining");
+
+                        // SLOW zone: approaching an itemize target. Pause a few frames
+                        // to let the game's input hit-testing catch up with the UI shift
+                        // before we click the valuable beast.
+                        if (releasesBeforeItemize >= 0 && releasesBeforeItemize <= 2 && !shouldItemize)
+                        {
+                            await TaskUtils.NextFrame();
+                            await TaskUtils.NextFrame();
+                            // Re-cache after settle to get fully updated positions.
+                            RefreshBeastCache();
+                            _beastCacheTimer.Restart();
+                        }
+
                         clickedAny = true;
                         break; // restart foreach with fresh _cachedBeasts
                     }
                     else
                     {
-                        LogMsg($"[Beast] click={clickMs}ms wtc=TIMEOUT({wtcMs}ms) ping={ping}ms -- applying fallback delay");
-                        // WTC timed out -- apply fallback delay before retrying.
+                        LogMsg($"[Beast] click={clickMs}ms wtc=TIMEOUT({wtcMs}ms) ping={ping}ms zone={zone} -- applying fallback delay");
                         _nextActionDelayMs = Settings.Automation.FallbackDelayMs.Value;
                         return true;
                     }
