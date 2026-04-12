@@ -169,59 +169,79 @@ public partial class Beasts
 
     private async SyncTask<bool> RunAutomationAsync()
     {
-        if (!GameController.Window.IsForeground()) return true;
-        if (!Settings.Enable.Value) return true;
+        var cfg = Settings.Automation;
 
-        // WTC fallback: only delays if the previous action timed out without server confirmation.
-        if (_sinceLastClick.ElapsedMilliseconds < _nextActionDelayMs)
-            return true;
-
-        // Use the render-layer cache — avoids re-reading beast addresses from memory.
-        if (!_bestiaryVisible || _cachedBeasts.Count == 0) return true;
-
-        var cfg       = Settings.Automation;
-        int threshold = cfg.ItemizeAboveChaos.Value;
-        var hasSpace  = HasInventorySpace();
-
-        // If inventory is full, stop — nothing to do until the player makes room.
-        if (cfg.CheckInventoryBeforeItemize.Value && !hasSpace)
+        // Outer loop: after each confirmed beast, refresh the cache and immediately
+        // look for the next one -- no task restart overhead or stale-cache delay.
+        while (true)
         {
-            Settings.Automation.Enable.Value = false;
-            return true;
-        }
+            if (!GameController.Window.IsForeground()) return true;
+            if (!Settings.Enable.Value) return true;
 
-        // Only interact with beasts inside the visible scroll area of the panel.
-        var viewTop    = _cachedPanelRect.Top;
-        var viewBottom = _cachedPanelRect.Bottom;
+            // WTC fallback: only delays if the previous action timed out without server confirmation.
+            if (_sinceLastClick.ElapsedMilliseconds < _nextActionDelayMs)
+                return true;
 
-        foreach (var entry in _cachedBeasts)
-        {
-            try
+            // Use the render-layer cache -- avoids re-reading beast addresses from memory.
+            if (!_bestiaryVisible || _cachedBeasts.Count == 0) return true;
+
+            int threshold = cfg.ItemizeAboveChaos.Value;
+
+            // If inventory is full, stop -- nothing to do until the player makes room.
+            if (cfg.CheckInventoryBeforeItemize.Value && !HasInventorySpace())
             {
-                var rect = entry.Element.GetClientRect();
-                if (rect.Width <= 0 || rect.Height <= 0) continue;
-                if (rect.Bottom < viewTop || rect.Top > viewBottom) continue;
-
-                // Yellow beasts (not in poe.ninja price list) are handled by their
-                // own toggle — independent of the chaos threshold.
-                bool shouldItemize;
-                if (entry.IsGenericYellow)
-                    shouldItemize = cfg.ItemizeYellowBeasts.Value;
-                else
-                    shouldItemize = entry.Price >= threshold;
-
-                var btn = shouldItemize ? entry.Element[0] : entry.Element.ReleaseButton;
-                if (btn == null) continue;
-
-                await CtrlClickElement(btn);
-                var confirmed = await WaitForBeastProcessed(entry.Element);
-
-                // WTC: if server confirmed (element gone), proceed immediately.
-                // If timed out, apply fallback delay before next action.
-                _nextActionDelayMs = confirmed ? 0 : Settings.Automation.FallbackDelayMs.Value;
+                Settings.Automation.Enable.Value = false;
                 return true;
             }
-            catch { /* element read failure — skip beast */ }
+
+            // Only interact with beasts inside the visible scroll area of the panel.
+            var viewTop    = _cachedPanelRect.Top;
+            var viewBottom = _cachedPanelRect.Bottom;
+
+            bool clickedAny = false;
+            foreach (var entry in _cachedBeasts)
+            {
+                try
+                {
+                    var rect = entry.Element.GetClientRect();
+                    if (rect.Width <= 0 || rect.Height <= 0) continue;
+                    if (rect.Bottom < viewTop || rect.Top > viewBottom) continue;
+
+                    // Yellow beasts (not in poe.ninja price list) are handled by their
+                    // own toggle -- independent of the chaos threshold.
+                    bool shouldItemize;
+                    if (entry.IsGenericYellow)
+                        shouldItemize = cfg.ItemizeYellowBeasts.Value;
+                    else
+                        shouldItemize = entry.Price >= threshold;
+
+                    var btn = shouldItemize ? entry.Element[0] : entry.Element.ReleaseButton;
+                    if (btn == null) continue;
+
+                    await CtrlClickElement(btn);
+                    var confirmed = await WaitForBeastProcessed(entry.Element);
+
+                    if (confirmed)
+                    {
+                        _nextActionDelayMs = 0;
+                        // Force cache refresh so the next iteration works with correct
+                        // element addresses (the game shifts UI elements after removal).
+                        RefreshBeastCache();
+                        _beastCacheTimer.Restart();
+                        clickedAny = true;
+                        break; // restart foreach with fresh _cachedBeasts
+                    }
+                    else
+                    {
+                        // WTC timed out -- apply fallback delay before retrying.
+                        _nextActionDelayMs = Settings.Automation.FallbackDelayMs.Value;
+                        return true;
+                    }
+                }
+                catch { /* element read failure -- skip beast */ }
+            }
+
+            if (!clickedAny) break; // no more actionable beasts
         }
 
         return true;

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,6 +20,16 @@ public partial class Beasts : BaseSettingsPlugin<BeastsSettings>
     private readonly Dictionary<long, Entity> _trackedYellowBeasts = new();
     private int _isFetchingPrices;
     private DateTime _lastPriceRefreshAttemptUtc = DateTime.MinValue;
+
+    // Reusable per-tick buffers -- avoid per-frame List<long> allocations.
+    private readonly List<long> _beastsToRemoveBuffer = new(8);
+    private readonly List<long> _yellowToRemoveBuffer = new(8);
+
+    // Throttled rebuild of _selectedBeastPathsSet (moved from Render to Tick).
+    private readonly Stopwatch _selectedPathsTimer = Stopwatch.StartNew();
+
+    // Cached player grace_period state (read in Tick, consumed in Render).
+    private bool _playerInGracePeriod;
 
     private const string TrappedBuffName = "capture_monster_trapped";
 
@@ -100,7 +111,23 @@ public partial class Beasts : BaseSettingsPlugin<BeastsSettings>
         if (serverData?.PlayerInventories?.Count > 0)
             _automationInventory = serverData.PlayerInventories[0].Inventory;
 
-        var beastsToRemove = new List<long>();
+        // Grace period scan -- cached for Render() to gate in-world draws.
+        // Reads Buffs component here (in Tick) so Render never touches it.
+        _playerInGracePeriod = false;
+        var playerBuffs = GameController.Player?.GetComponent<Buffs>()?.BuffsList;
+        if (playerBuffs != null)
+        {
+            for (int i = 0; i < playerBuffs.Count; i++)
+            {
+                if (playerBuffs[i]?.Name == "grace_period")
+                {
+                    _playerInGracePeriod = true;
+                    break;
+                }
+            }
+        }
+
+        _beastsToRemoveBuffer.Clear();
 
         foreach (var trackedBeast in _trackedBeasts)
         {
@@ -109,33 +136,33 @@ public partial class Beasts : BaseSettingsPlugin<BeastsSettings>
 
             if (IsTrapped(entity))
             {
-                beastsToRemove.Add(trackedBeast.Key);
+                _beastsToRemoveBuffer.Add(trackedBeast.Key);
             }
         }
 
-        foreach (var id in beastsToRemove)
+        foreach (var id in _beastsToRemoveBuffer)
         {
             _trackedBeasts.Remove(id);
         }
 
         // Track yellow beasts (IsCapturableMonster but not in database)
-        var yellowToRemove = new List<long>();
+        _yellowToRemoveBuffer.Clear();
         foreach (var trackedYellow in _trackedYellowBeasts)
         {
             var entity = trackedYellow.Value;
             if (entity == null || !entity.IsValid)
             {
-                yellowToRemove.Add(trackedYellow.Key);
+                _yellowToRemoveBuffer.Add(trackedYellow.Key);
                 continue;
             }
 
             if (IsTrapped(entity))
             {
-                yellowToRemove.Add(trackedYellow.Key);
+                _yellowToRemoveBuffer.Add(trackedYellow.Key);
             }
         }
 
-        foreach (var id in yellowToRemove)
+        foreach (var id in _yellowToRemoveBuffer)
         {
             _trackedYellowBeasts.Remove(id);
         }
@@ -168,6 +195,23 @@ public partial class Beasts : BaseSettingsPlugin<BeastsSettings>
                 _trackedYellowBeasts[entity.Id] = entity;
             }
         }
+
+        // Throttled in-place rebuild of _selectedBeastPathsSet (was in Render, now in Tick).
+        // Clear + Add instead of the LINQ Select().Where().ToHashSet() chain.
+        if (_selectedPathsTimer.ElapsedMilliseconds >= SelectedPathsRefreshMs)
+        {
+            _selectedBeastPathsSet.Clear();
+            foreach (var b in Settings.Beasts)
+            {
+                if (!string.IsNullOrEmpty(b.Path))
+                    _selectedBeastPathsSet.Add(b.Path);
+            }
+            _selectedPathsTimer.Restart();
+        }
+
+        // Build the per-frame render snapshot so DrawInGameBeasts/DrawBeastsOnMap
+        // never need to touch entity components in Render.
+        RebuildRenderSnapshots();
 
         return null;
     }
@@ -238,6 +282,11 @@ public partial class Beasts : BaseSettingsPlugin<BeastsSettings>
     {
         _trackedBeasts.Clear();
         _trackedYellowBeasts.Clear();
+        _renderSnapshots.Clear();
+        _selectedBeastPathsSet.Clear();
+        _beastsToRemoveBuffer.Clear();
+        _yellowToRemoveBuffer.Clear();
+        _playerInGracePeriod = false;
     }
 
     public override void EntityAdded(Entity entity)
