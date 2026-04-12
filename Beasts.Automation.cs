@@ -35,22 +35,22 @@ public partial class Beasts
     }
 
     /// <summary>
-    /// Polls until the beast element disappears from the UI, confirming the server
-    /// processed the release/itemize (WTC -- Wait To Confirm). Uses <c>IsVisible</c>
-    /// (single memory read) rather than <c>GetClientRect</c> for minimal overhead.
-    /// Returns <c>true</c> if the element disappeared (confirmed), <c>false</c> on timeout.
+    /// Polls until the beast list count decreases, confirming the server processed the
+    /// release/itemize (WTC -- Wait To Confirm). Refreshes the beast cache each frame
+    /// so the caller gets fresh data on success. <c>IsVisible</c> on individual beast
+    /// elements does NOT flip when the game removes them -- count-based detection is
+    /// the only reliable method.
+    /// Returns <c>true</c> if count decreased (confirmed), <c>false</c> on timeout.
     /// </summary>
-    private static async SyncTask<bool> WaitForBeastProcessed(Element beastElement, int timeoutMs = 600)
+    private async SyncTask<bool> WaitForBeastCountChange(int countBefore, int timeoutMs = 600)
     {
         var sw = Stopwatch.StartNew();
         while (sw.ElapsedMilliseconds < timeoutMs)
         {
-            try
-            {
-                if (!beastElement.IsVisible) return true;
-            }
-            catch { return true; } // address invalidated -- element is gone
             await TaskUtils.NextFrame();
+            RefreshBeastCache();
+            _beastCacheTimer.Restart();
+            if (_cachedBeasts.Count < countBefore) return true;
         }
         return false; // timed out -- server did not confirm in time
     }
@@ -170,6 +170,7 @@ public partial class Beasts
     private async SyncTask<bool> RunAutomationAsync()
     {
         var cfg = Settings.Automation;
+        var loopSw = Stopwatch.StartNew();
 
         // Outer loop: after each confirmed beast, refresh the cache and immediately
         // look for the next one -- no task restart overhead or stale-cache delay.
@@ -199,6 +200,8 @@ public partial class Beasts
             var viewBottom = _cachedPanelRect.Bottom;
 
             bool clickedAny = false;
+            var countBefore = _cachedBeasts.Count;
+
             foreach (var entry in _cachedBeasts)
             {
                 try
@@ -218,21 +221,28 @@ public partial class Beasts
                     var btn = shouldItemize ? entry.Element[0] : entry.Element.ReleaseButton;
                     if (btn == null) continue;
 
+                    loopSw.Restart();
                     await CtrlClickElement(btn);
-                    var confirmed = await WaitForBeastProcessed(entry.Element);
+                    var clickMs = loopSw.ElapsedMilliseconds;
+
+                    // WTC: poll cache refresh until beast count decreases.
+                    // IsVisible on individual elements never flips -- count is reliable.
+                    var wtcSw = Stopwatch.StartNew();
+                    var confirmed = await WaitForBeastCountChange(countBefore);
+                    var wtcMs = wtcSw.ElapsedMilliseconds;
+                    var ping = GameController.IngameState.ServerData.Latency;
 
                     if (confirmed)
                     {
                         _nextActionDelayMs = 0;
-                        // Force cache refresh so the next iteration works with correct
-                        // element addresses (the game shifts UI elements after removal).
-                        RefreshBeastCache();
-                        _beastCacheTimer.Restart();
+                        // Cache is already refreshed inside WaitForBeastCountChange.
+                        LogMsg($"[Beast] click={clickMs}ms wtc={wtcMs}ms ping={ping}ms cache={_cachedBeasts.Count} remaining");
                         clickedAny = true;
                         break; // restart foreach with fresh _cachedBeasts
                     }
                     else
                     {
+                        LogMsg($"[Beast] click={clickMs}ms wtc=TIMEOUT({wtcMs}ms) ping={ping}ms -- applying fallback delay");
                         // WTC timed out -- apply fallback delay before retrying.
                         _nextActionDelayMs = Settings.Automation.FallbackDelayMs.Value;
                         return true;
