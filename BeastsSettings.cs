@@ -15,9 +15,9 @@ namespace Beasts;
 
 public class BeastsSettings : ISettings
 {
-    public List<Beast> Beasts { get; set; } = new();
-    public Dictionary<string, float> BeastPrices { get; set; } = new();
-    public DateTime LastUpdate { get; set; } = DateTime.MinValue;
+    [IgnoreMenu] public List<Beast> Beasts { get; set; } = new();
+    [IgnoreMenu] public Dictionary<string, float> BeastPrices { get; set; } = new();
+    [IgnoreMenu] public DateTime LastUpdate { get; set; } = DateTime.MinValue;
 
     public BeastsSettings()
     {
@@ -176,36 +176,24 @@ public class BeastAutomationSettings
     public ToggleNode CheckInventoryBeforeItemize { get; set; } = new ToggleNode(true);
 
     /// <summary>
-    /// Fixed delay (ms) between consecutive itemize/release actions.
-    /// Increase if the automation misses clicks due to UI lag.
+    /// When ON, mouse input is handled by the InputHumanizer plugin (curved movement,
+    /// Gaussian delays). When OFF, uses simple direct input with a configurable pre-click delay.
     /// </summary>
-    public RangeNode<int> ActionDelayMs { get; set; } = new RangeNode<int>(300, 50, 3000);
-
-    /// <summary>Input timing and humanization settings.</summary>
-    public BeastDelayOptions Delays { get; set; } = new();
-}
-
-[Submenu(CollapsedByDefault = true)]
-public class BeastDelayOptions
-{
-    /// <summary>
-    /// Random delay between consecutive beast actions (ms). X = min, Y = max.
-    /// The automation waits a freshly-rolled random value in this range after each click
-    /// before acting on the next beast — mimics natural human pacing.
-    /// </summary>
-    public RangeNode<System.Numerics.Vector2> MinMaxActionDelayMs { get; set; } =
-        new(new System.Numerics.Vector2(200, 400), new System.Numerics.Vector2(50, 50), new System.Numerics.Vector2(2000, 2000));
+    [Menu("Use Input Humanizer", "Delegates mouse movement and click timing to the InputHumanizer plugin via PluginBridge. Disable to use simple direct input instead.")]
+    public ToggleNode UseInputHumanizer { get; set; } = new ToggleNode(false);
 
     /// <summary>
-    /// Random delay (ms) added after moving the cursor to a button and before pressing it.
-    /// X = min, Y = max. Simulates the human reaction time between "mouse arrived" and "finger clicks".
+    /// Delay (ms) before each click. Only used when Input Humanizer is OFF.
     /// </summary>
-    public RangeNode<System.Numerics.Vector2> MinMaxPreClickDelayMs { get; set; } =
-        new(new System.Numerics.Vector2(20, 60), new System.Numerics.Vector2(5, 5), new System.Numerics.Vector2(300, 300));
+    [ConditionalDisplay(nameof(UseInputHumanizer), false)]
+    [Menu("Pre-Click Delay (ms)", "Delay after moving cursor to button before clicking. Only used in simple input mode.")]
+    public RangeNode<int> PreClickDelayMs { get; set; } = new RangeNode<int>(30, 5, 300);
 
     /// <summary>
-    /// Random pixel jitter applied to the click position within the button rect.
-    /// Higher values spread clicks more — avoids pixel-perfect patterns.
+    /// Fallback delay (ms) between actions if the server does not confirm processing
+    /// within the WTC timeout. When the server confirms quickly, the next action
+    /// starts immediately with no inter-action delay.
     /// </summary>
-    public RangeNode<int> ClickJitter { get; set; } = new RangeNode<int>(4, 0, 20);
+    [Menu("Fallback Delay (ms)", "Only applies when the server does not confirm the action in time. Normally actions proceed as soon as the panel updates.")]
+    public RangeNode<int> FallbackDelayMs { get; set; } = new RangeNode<int>(300, 50, 3000);
 }

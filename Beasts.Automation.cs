@@ -17,87 +17,21 @@ public partial class Beasts
     private readonly Stopwatch _sinceLastClick = Stopwatch.StartNew();
     private ServerInventory _automationInventory;
 
-    // Random delay for the NEXT action — re-rolled after every click so the
-    // inter-action timing is never the same value twice in a row.
-    private int _nextActionDelayMs = 300;
+    private int _nextActionDelayMs;
     private readonly Random _random = new();
 
-    // ── Perlin noise (ported from WheresMyCraftAt) ────────────────────────────
-    // Used for smooth, correlated position jitter — avoids the visible "jumpy"
-    // pattern that pure Random produces when you watch the cursor on screen.
-
-    private static readonly int[] PerlinPerm =
-    [
-        151,160,137, 91, 90, 15,131, 13,201, 95, 96, 53,194,233,  7,225,
-        140, 36,103, 30, 69,142,  8, 99, 37,240, 21, 10, 23,190,  6,148,
-        247,120,234, 75,  0, 26,197, 62, 94,252,219,203,117, 35, 11, 32,
-         57,177, 33, 88,237,149, 56, 87,174, 20,125,136,171,168, 68,175,
-         74,165, 71,134,139, 48, 27,166, 77,146,158,231, 83,111,229,122,
-         60,211,133,230,220,105, 92, 41, 55, 46,245, 40,244,102,143, 54,
-         65, 25, 63,161,  1,216, 80, 73,209, 76,132,187,208, 89, 18,169,
-        200,196,135,130,116,188,159, 86,164,100,109,198,173,186,  3, 64,
-         52,217,226,250,124,123,  5,202, 38,147,118,126,255, 82, 85,212,
-        207,206, 59,227, 47, 16, 58, 17,182,189, 28, 42,223,183,170,213,
-        119,248,152,  2, 44,154,163, 70,221,153,101,155,167, 43,172,  9,
-        129, 22, 39,253, 19, 98,108,110, 79,113,224,232,178,185,112,104,
-        218,246, 97,228,251, 34,242,193,238,210,144, 12,191,179,162,241,
-         81, 51,145,235,249, 14,239,107, 49,192,214, 31,181,199,106,157,
-        184, 84,204,176,115,121, 50, 45,127,  4,150,254,138,236,205, 93,
-        222,114, 67, 29, 24, 72,243,141,128,195, 78, 66,215, 61,156,180,
-        // doubled for wrap-around
-        151,160,137, 91, 90, 15,131, 13,201, 95, 96, 53,194,233,  7,225,
-        140, 36,103, 30, 69,142,  8, 99, 37,240, 21, 10, 23,190,  6,148,
-        247,120,234, 75,  0, 26,197, 62, 94,252,219,203,117, 35, 11, 32,
-         57,177, 33, 88,237,149, 56, 87,174, 20,125,136,171,168, 68,175,
-         74,165, 71,134,139, 48, 27,166, 77,146,158,231, 83,111,229,122,
-         60,211,133,230,220,105, 92, 41, 55, 46,245, 40,244,102,143, 54,
-         65, 25, 63,161,  1,216, 80, 73,209, 76,132,187,208, 89, 18,169,
-        200,196,135,130,116,188,159, 86,164,100,109,198,173,186,  3, 64,
-         52,217,226,250,124,123,  5,202, 38,147,118,126,255, 82, 85,212,
-        207,206, 59,227, 47, 16, 58, 17,182,189, 28, 42,223,183,170,213,
-        119,248,152,  2, 44,154,163, 70,221,153,101,155,167, 43,172,  9,
-        129, 22, 39,253, 19, 98,108,110, 79,113,224,232,178,185,112,104,
-        218,246, 97,228,251, 34,242,193,238,210,144, 12,191,179,162,241,
-         81, 51,145,235,249, 14,239,107, 49,192,214, 31,181,199,106,157,
-        184, 84,204,176,115,121, 50, 45,127,  4,150,254,138,236,205, 93,
-        222,114, 67, 29, 24, 72,243,141,128,195, 78, 66,215, 61,156,180
-    ];
-
-    private float _perlinTime;
-
-    private float PerlinNoise(float x, float y)
+    /// <summary>
+    /// Checks whether a beast should be itemized (true) or released (false)
+    /// based on the current automation settings and price threshold.
+    /// </summary>
+    private bool ShouldItemizeBeast(CachedBeastEntry entry, int threshold)
     {
-        var X = (int)Math.Floor(x) & 255;
-        var Y = (int)Math.Floor(y) & 255;
-        x -= (float)Math.Floor(x);
-        y -= (float)Math.Floor(y);
-        var u = x * x * x * (x * (x * 6 - 15) + 10);
-        var v = y * y * y * (y * (y * 6 - 15) + 10);
-        var A  = PerlinPerm[X]     + Y;
-        var AA = PerlinPerm[A]     % 256;
-        var AB = PerlinPerm[A + 1] % 256;
-        var B  = PerlinPerm[X + 1] + Y;
-        var BA = PerlinPerm[B]     % 256;
-        var BB = PerlinPerm[B + 1] % 256;
-
-        static float Grad(int h, float gx, float gy)
-        {
-            var gu = (h & 8) == 0 ? gx : gy;
-            var gv = (h & 4) == 0 ? gy : (h is 12 or 14 ? gx : 0f);
-            return ((h & 1) == 0 ? gu : -gu) + ((h & 2) == 0 ? gv : -gv);
-        }
-
-        return Lerp(v,
-            Lerp(u, Grad(PerlinPerm[AA], x, y),     Grad(PerlinPerm[BA], x - 1, y)),
-            Lerp(u, Grad(PerlinPerm[AB], x, y - 1), Grad(PerlinPerm[BB], x - 1, y - 1)));
-
-        static float Lerp(float t, float a, float b) => a + t * (b - a);
+        if (entry.IsGenericYellow)
+            return Settings.Automation.ItemizeYellowBeasts.Value;
+        return entry.Price >= threshold;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private int RandomInRange(Vector2 range) =>
-        _random.Next((int)range.X, Math.Max((int)range.X + 1, (int)range.Y + 1));
 
     /// <summary>
     /// Yields frames until <paramref name="ms"/> milliseconds have passed.
@@ -112,59 +46,36 @@ public partial class Beasts
     }
 
     /// <summary>
-    /// Polls until the beast element disappears from the UI, confirming server
-    /// processed the release/itemize. Uses <c>IsVisible</c> (single memory read)
-    /// rather than <c>GetClientRect</c> for minimal overhead per frame.
-    /// Times out after <paramref name="timeoutMs"/> ms and proceeds anyway.
+    /// Polls until the beast list count decreases, confirming the server processed the
+    /// release/itemize (WTC -- Wait To Confirm). Refreshes the beast cache each frame
+    /// so the caller gets fresh data on success. <c>IsVisible</c> on individual beast
+    /// elements does NOT flip when the game removes them -- count-based detection is
+    /// the only reliable method.
+    /// Returns <c>true</c> if count decreased (confirmed), <c>false</c> on timeout.
     /// </summary>
-    private static async SyncTask<bool> WaitForBeastProcessed(Element beastElement, int timeoutMs = 600)
+    private async SyncTask<bool> WaitForBeastCountChange(int countBefore, int timeoutMs = 600)
     {
         var sw = Stopwatch.StartNew();
         while (sw.ElapsedMilliseconds < timeoutMs)
         {
-            try
-            {
-                if (!beastElement.IsVisible) return true;
-            }
-            catch { return true; } // address invalidated — element is gone
             await TaskUtils.NextFrame();
+            RefreshBeastCache();
+            _beastCacheTimer.Restart();
+            if (_cachedBeasts.Count < countBefore) return true;
         }
-        return true;
+        return false; // timed out -- server did not confirm in time
     }
 
     /// <summary>
-    /// Returns a click position within the center 40 % of <paramref name="rect"/>
-    /// with a small Perlin-driven nudge.
-    /// Tight spread reduces visible cursor distance between consecutive button clicks
-    /// while still avoiding perfectly identical positions on every action.
+    /// Returns a random click position within the center 60% of <paramref name="rect"/>.
     /// </summary>
-    private Vector2 GetHumanClickPos(SharpDX.RectangleF rect)
+    private Vector2 GetRandomClickPos(SharpDX.RectangleF rect)
     {
-        var jitter = Settings.Automation.Delays.ClickJitter.Value;
-
-        // Advance Perlin time by a small random step for smooth, non-periodic variation.
-        _perlinTime += _random.Next(1, 6);
-        if (_perlinTime > 10000f) _perlinTime = 0f;
-
-        var noise = PerlinNoise(_perlinTime / 100f, 0f); // [-1, 1]
-
-        // Shrink to the center 40 % of the rect (30 % margin each side).
-        // Tighter area = less cursor travel between buttons, less "jumpy" appearance.
-        var shrinkX = rect.Width  * 0.30f;
-        var shrinkY = rect.Height * 0.30f;
-        var inner = new SharpDX.RectangleF(
-            rect.Left + shrinkX, rect.Top  + shrinkY,
-            rect.Width  - shrinkX * 2,
-            rect.Height - shrinkY * 2);
-
-        var baseX = inner.Left + (float)(_random.NextDouble() * inner.Width);
-        var baseY = inner.Top  + (float)(_random.NextDouble() * inner.Height);
-
-        // Perlin nudge capped to half the jitter value so clicks stay tight.
-        var nx = baseX + noise * (jitter * 0.5f);
-        var ny = baseY + noise * (jitter * 0.35f);
-
-        return new Vector2(nx, ny);
+        var marginX = rect.Width  * 0.20f;
+        var marginY = rect.Height * 0.20f;
+        var x = rect.Left + marginX + (float)(_random.NextDouble() * (rect.Width  - marginX * 2));
+        var y = rect.Top  + marginY + (float)(_random.NextDouble() * (rect.Height - marginY * 2));
+        return new Vector2(x, y);
     }
 
     // ── Inventory space check ─────────────────────────────────────────────────
@@ -200,36 +111,68 @@ public partial class Beasts
         return false;
     }
 
-    // ── Click helper ──────────────────────────────────────────────────────────
+    // ── Click helpers ─────────────────────────────────────────────────────────
 
     private async SyncTask<bool> CtrlClickElement(Element element)
     {
         if (element == null) return false;
 
         var windowOffset = GameController.Window.GetWindowRectangleTimeCache.TopLeft.ToVector2Num();
+        var clickPos = GetRandomClickPos(element.GetClientRect()) + windowOffset;
 
-        // 1. Move cursor directly to a human-like position within the button rect.
-        //    Mouse is NOT reset to the beast center first — it travels naturally
-        //    from wherever the last click left it.
-        var clickPos = GetHumanClickPos(element.GetClientRect()) + windowOffset;
+        bool ok = Settings.Automation.UseInputHumanizer.Value
+            ? await CtrlClickViaHumanizer(clickPos)
+            : await CtrlClickSimple(clickPos);
+
+        if (!ok) return false;
+
+        _sinceLastClick.Restart();
+        return true;
+    }
+
+    private async SyncTask<bool> CtrlClickSimple(Vector2 clickPos)
+    {
         Input.SetCursorPos(clickPos);
+        await WaitMs(Settings.Automation.PreClickDelayMs.Value);
 
-        // 2. Wait a random "mouse-settle + human reaction" delay before pressing.
-        //    This simulates the time between cursor arriving and finger pressing —
-        //    equivalent to WMCA's MinMaxRandomDelayMS polling loop.
-        var preDelay = RandomInRange(Settings.Automation.Delays.MinMaxPreClickDelayMs.Value);
-        await WaitMs(preDelay);
-
-        // 3. Hold Ctrl, click, release — keep frame gaps between each input event.
         Input.KeyDown(Keys.ControlKey);
         await TaskUtils.NextFrame();
         Input.Click(MouseButtons.Left);
         await TaskUtils.NextFrame();
         Input.KeyUp(Keys.ControlKey);
+        return true;
+    }
 
-        // 4. Use configured action delay and restart the cooldown timer.
-        _nextActionDelayMs = Settings.Automation.ActionDelayMs.Value;
-        _sinceLastClick.Restart();
+    private async SyncTask<bool> CtrlClickViaHumanizer(Vector2 clickPos)
+    {
+        var getController = GameController.PluginBridge
+            .GetMethod<Func<string, TimeSpan, SyncTask<object>>>("InputHumanizer.GetInputController");
+
+        if (getController == null)
+        {
+            LogError("InputHumanizer plugin not available -- switch to SimpleDelay or enable InputHumanizer.");
+            Settings.Automation.Enable.Value = false;
+            return false;
+        }
+
+        dynamic controller = await getController("Beasts", TimeSpan.FromMilliseconds(500));
+        if (controller == null)
+        {
+            LogError("InputHumanizer busy -- another plugin holds the input lock.");
+            return false;
+        }
+
+        try
+        {
+            controller.KeyDown(Keys.ControlKey);
+            await controller.Click(clickPos);
+            await controller.KeyUp(Keys.ControlKey, true);
+        }
+        finally
+        {
+            controller.Dispose();
+        }
+
         return true;
     }
 
@@ -237,67 +180,140 @@ public partial class Beasts
 
     private async SyncTask<bool> RunAutomationAsync()
     {
-        if (!GameController.Window.IsForeground()) return true;
-        if (!Settings.Enable.Value) return true;
+        var cfg = Settings.Automation;
+        var loopSw = Stopwatch.StartNew();
 
-        // Gate on the freshly-rolled random delay (re-rolled after each click).
-        if (_sinceLastClick.ElapsedMilliseconds < _nextActionDelayMs)
-            return true;
-
-        // Use the render-layer cache — avoids re-reading beast addresses from memory.
-        if (!_bestiaryVisible || _cachedBeasts.Count == 0) return true;
-
-        var cfg       = Settings.Automation;
-        int threshold = cfg.ItemizeAboveChaos.Value;
-        var hasSpace  = HasInventorySpace();
-
-        // If inventory is full, stop — nothing to do until the player makes room.
-        if (cfg.CheckInventoryBeforeItemize.Value && !hasSpace)
+        // Outer loop: after each confirmed beast, refresh the cache and immediately
+        // look for the next one -- no task restart overhead or stale-cache delay.
+        while (true)
         {
-            Settings.Automation.Enable.Value = false;
-            return true;
-        }
+            if (!GameController.Window.IsForeground()) return true;
+            if (!Settings.Enable.Value) return true;
 
-        // Only interact with beasts inside the visible scroll area of the panel.
-        var viewTop    = _cachedPanelRect.Top;
-        var viewBottom = _cachedPanelRect.Bottom;
+            // WTC fallback: only delays if the previous action timed out without server confirmation.
+            if (_sinceLastClick.ElapsedMilliseconds < _nextActionDelayMs)
+                return true;
 
-        foreach (var entry in _cachedBeasts)
-        {
-            try
+            // Use the render-layer cache -- avoids re-reading beast addresses from memory.
+            if (!_bestiaryVisible || _cachedBeasts.Count == 0) return true;
+
+            int threshold = cfg.ItemizeAboveChaos.Value;
+
+            // If inventory is full, stop -- nothing to do until the player makes room.
+            if (cfg.CheckInventoryBeforeItemize.Value && !HasInventorySpace())
             {
-                var rect = entry.Element.GetClientRect();
-                if (rect.Width <= 0 || rect.Height <= 0) continue;
-                if (rect.Bottom < viewTop || rect.Top > viewBottom) continue;
-
-                // Yellow beasts (not in poe.ninja price list) are handled by their
-                // own toggle — independent of the chaos threshold.
-                bool shouldItemize;
-                if (entry.IsGenericYellow)
-                    shouldItemize = cfg.ItemizeYellowBeasts.Value;
-                else
-                    shouldItemize = entry.Price >= threshold;
-
-                if (shouldItemize)
-                {
-                    var btn = entry.Element[0];
-                    if (btn == null) continue;
-
-                    await CtrlClickElement(btn);
-                    await WaitForBeastProcessed(entry.Element);
-                    return true;
-                }
-                else
-                {
-                    var btn = entry.Element.ReleaseButton;
-                    if (btn == null) continue;
-
-                    await CtrlClickElement(btn);
-                    await WaitForBeastProcessed(entry.Element);
-                    return true;
-                }
+                Settings.Automation.Enable.Value = false;
+                return true;
             }
-            catch { /* element read failure — skip beast */ }
+
+            // Only interact with beasts inside the visible scroll area of the panel.
+            var viewTop    = _cachedPanelRect.Top;
+            var viewBottom = _cachedPanelRect.Bottom;
+
+            // ── Look-ahead: count releases before next itemize target ─────────
+            // -1 = no itemize target visible (all releases -- full speed)
+            //  0 = first visible beast IS the itemize target (CAREFUL)
+            //  1-2 = approaching an itemize target (SLOW)
+            //  3+ = far away (FAST)
+            int releasesBeforeItemize = -1;
+            foreach (var scan in _cachedBeasts)
+            {
+                try
+                {
+                    var scanRect = scan.Element.GetClientRect();
+                    if (scanRect.Width <= 0 || scanRect.Height <= 0) continue;
+                    if (scanRect.Bottom < viewTop || scanRect.Top > viewBottom) continue;
+
+                    if (ShouldItemizeBeast(scan, threshold))
+                    {
+                        if (releasesBeforeItemize < 0) releasesBeforeItemize = 0;
+                        break;
+                    }
+                    releasesBeforeItemize = releasesBeforeItemize < 0 ? 1 : releasesBeforeItemize + 1;
+                }
+                catch { }
+            }
+
+            // ── Process the first visible beast ───────────────────────────────
+            bool clickedAny = false;
+            var countBefore = _cachedBeasts.Count;
+
+            foreach (var entry in _cachedBeasts)
+            {
+                try
+                {
+                    var rect = entry.Element.GetClientRect();
+                    if (rect.Width <= 0 || rect.Height <= 0) continue;
+                    if (rect.Bottom < viewTop || rect.Top > viewBottom) continue;
+
+                    bool shouldItemize = ShouldItemizeBeast(entry, threshold);
+
+                    // CAREFUL zone: before clicking an itemize target, verify the
+                    // element still matches what we cached. If the UI shifted and
+                    // this address now points to a different beast, re-cache instead
+                    // of risking a misclick on a valuable beast.
+                    if (shouldItemize)
+                    {
+                        var liveName = entry.Element.Name?.Replace("-", "").Trim();
+                        if (liveName != entry.DisplayName)
+                        {
+                            RefreshBeastCache();
+                            _beastCacheTimer.Restart();
+                            clickedAny = true; // force while loop restart
+                            break;
+                        }
+                    }
+
+                    var btn = shouldItemize ? entry.Element[0] : entry.Element.ReleaseButton;
+                    if (btn == null) continue;
+
+                    string zone = shouldItemize ? "CAREFUL"
+                        : releasesBeforeItemize >= 0 && releasesBeforeItemize <= 2
+                            ? $"SLOW({releasesBeforeItemize})"
+                            : "FAST";
+
+                    loopSw.Restart();
+                    await CtrlClickElement(btn);
+                    var clickMs = loopSw.ElapsedMilliseconds;
+
+                    // WTC: poll cache refresh until beast count decreases.
+                    var wtcSw = Stopwatch.StartNew();
+                    var confirmed = await WaitForBeastCountChange(countBefore);
+                    var wtcMs = wtcSw.ElapsedMilliseconds;
+                    var ping = GameController.IngameState.ServerData.Latency;
+
+                    if (confirmed)
+                    {
+                        _nextActionDelayMs = 0;
+                        // Cache is already refreshed inside WaitForBeastCountChange.
+                        LogMsg($"[Beast] click={clickMs}ms wtc={wtcMs}ms ping={ping}ms zone={zone} cache={_cachedBeasts.Count} remaining");
+
+                        // SLOW zone: approaching an itemize target. Pause a few frames
+                        // to let the game's input hit-testing catch up with the UI shift
+                        // before we click the valuable beast.
+                        if (releasesBeforeItemize >= 0 && releasesBeforeItemize <= 2 && !shouldItemize)
+                        {
+                            await TaskUtils.NextFrame();
+                            await TaskUtils.NextFrame();
+                            // Re-cache after settle to get fully updated positions.
+                            RefreshBeastCache();
+                            _beastCacheTimer.Restart();
+                        }
+
+                        clickedAny = true;
+                        break; // restart foreach with fresh _cachedBeasts
+                    }
+                    else
+                    {
+                        LogMsg($"[Beast] click={clickMs}ms wtc=TIMEOUT({wtcMs}ms) ping={ping}ms zone={zone} -- applying fallback delay");
+                        _nextActionDelayMs = Settings.Automation.FallbackDelayMs.Value;
+                        return true;
+                    }
+                }
+                catch { /* element read failure -- skip beast */ }
+            }
+
+            if (!clickedAny) break; // no more actionable beasts
         }
 
         return true;
