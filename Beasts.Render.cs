@@ -320,21 +320,23 @@ public partial class Beasts
         var playerRender = player?.GetComponent<Render>();
         var playerPositioned = player?.GetComponent<Positioned>();
         if (playerRender == null || playerPositioned == null) return;
-
+    
         var playerPosition = new Vector2(playerPositioned.GridPosNum.X, playerPositioned.GridPosNum.Y);
         var playerHeight = -playerRender.RenderStruct.Height;
         var heightData = GameController.IngameState.Data.RawTerrainHeightData;
-
+    
         for (int i = 0; i < _renderSnapshots.Count; i++)
         {
             var snap = _renderSnapshots[i];
             if (!snap.IsYellow && !snap.IsSelected) continue;
-
+    
+            if (snap.IsYellow && !Settings.ShowYellowBeastsOnMap.Value) continue;
+    
             var mapPos = EntityToMapPos(snap.GridPos, playerPosition, playerHeight, heightData, mapCenter);
-
+    
             string text;
             Color textColor;
-
+    
             if (snap.IsYellow)
             {
                 text = snap.DisplayName;
@@ -346,7 +348,7 @@ public partial class Beasts
                 text = $"{price.ToString(CultureInfo.InvariantCulture)}c";
                 textColor = snap.OutlineColor;
             }
-
+    
             var textSize = Graphics.MeasureText(text);
             var textOffset = textSize / 2f;
             DrawBox(mapPos - textOffset - new Vector2(4, 2), mapPos + textOffset + new Vector2(4, 2), new Color(0, 0, 0, 180));
@@ -398,6 +400,8 @@ public partial class Beasts
         {
             var snap = _renderSnapshots[i];
             if (!snap.IsSelected) continue;
+
+            if (snap.IsYellow && !Settings.ShowYellowBeastsOnMap.Value) continue;
 
             // Built-in safe circle helpers -- handle frustum edge cases correctly.
             // Two-layer pattern preserves the original 20% fill + full-alpha outline look.
@@ -603,6 +607,8 @@ public partial class Beasts
             {
                 var snap = _renderSnapshots[i];
                 if (!snap.IsYellow) continue;
+
+                if (!Settings.ShowYellowBeastsOnMap.Value) continue;
 
                 ImGui.TableNextRow();
                 ImGui.TableNextColumn();
